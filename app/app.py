@@ -10,7 +10,7 @@ CORS(app)
 
 # Get absolute path to the data directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSV_PATH = os.path.join(BASE_DIR, 'data', 'Voter Status File 11-04 1800 CSV.csv')
+CSV_PATH = os.getenv('CSV_PATH', os.path.join(BASE_DIR, 'data', 'Voter Status File 11-04 1800 CSV.csv'))
 
 print(f"Attempting to load CSV from: {CSV_PATH}")
 
