@@ -4,7 +4,9 @@ services:
   github:
     repo: your-repo
     branch: main
-  build_command: pip install -r requirements.txt
+  build_command: |
+    pip install -r requirements.txt
+    python init_db.py
   run_command: gunicorn app.app:app
   instance_size_slug: basic-xxs
   instance_count: 1 

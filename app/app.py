@@ -5,6 +5,9 @@ import os
 from flask_cors import CORS
 from .db import DB_PATH
 
+# Before using DB_PATH, ensure the directory exists
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
 def verify_database():
     """Verify database exists and has data"""
     if not os.path.exists(DB_PATH):

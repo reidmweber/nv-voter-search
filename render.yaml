@@ -1,32 +1,11 @@
 services:
   - type: web
     name: voter-search
-    runtime: python
+    env: python
     buildCommand: |
       pip install -r requirements.txt
-      echo "Creating data directory..."
-      mkdir -p data
-      echo "Downloading database from Google Drive..."
-      curl -L "https://drive.google.com/uc?export=download&id=1rcVvO7surN5PdIRAqNTPIkg7SRfr6_8x" -o data/voters.db
-      echo "Database size:"
-      ls -lh data/voters.db
-    startCommand: |
-      echo "Starting application..."
-      echo "Using database at:"
-      ls -lh data/voters.db
-      echo "Starting gunicorn..."
-      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 300 --keep-alive 5 --max-requests 1000 --max-requests-jitter 50 --preload
+      python init_db.py
+    startCommand: gunicorn app.app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9
-      - key: PORT
-        value: 10000
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: PYTHONPATH
-        value: /opt/render/project/src
-    plan: starter
-    disk:
-      name: sqlite-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
+        value: 3.11
