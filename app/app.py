@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import os
 from flask_cors import CORS
+from .db import DB_PATH  # Import DB_PATH from db.py
 
 def create_app():
     app = Flask(__name__)

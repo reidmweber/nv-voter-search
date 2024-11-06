@@ -4,7 +4,9 @@ services:
     runtime: python
     buildCommand: |
       pip install -r requirements.txt
-      python app/cli.py init
+      mkdir -p data
+      cp "Voter Status File 11-04 1800 CSV.csv" data/voter_status.csv
+      python -m app.cli force_init
     startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class sync --max-requests 1000
     envVars:
       - key: PYTHON_VERSION
@@ -14,3 +16,7 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
     plan: starter
+    disk:
+      name: sqlite-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
