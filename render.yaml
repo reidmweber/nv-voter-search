@@ -11,19 +11,14 @@ services:
       echo "Listing files in data directory..."
       ls -la data/
       echo "Initializing database..."
-      PYTHONPATH=/opt/render/project/src python -c "
-      from app.db import init_db
-      print('Starting database initialization...')
-      init_db()
-      print('Database initialization complete')
-      "
+      PYTHONPATH=/opt/render/project/src timeout 600 python app/init_db.py
       echo "Build command complete"
     startCommand: |
       echo "Starting application..."
       echo "Checking data directory..."
       ls -la data/
       echo "Starting gunicorn..."
-      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --worker-class sync --max-requests 1000 --max-requests-jitter 50
+      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 300 --keep-alive 5 --max-requests 1000 --max-requests-jitter 50
     envVars:
       - key: PYTHON_VERSION
         value: 3.9
