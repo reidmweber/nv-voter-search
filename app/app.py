@@ -3,26 +3,116 @@ from flask_cors import CORS
 import pandas as pd
 import numpy as np
 import os
-import re
+import requests
+import io
+import time
 
 app = Flask(__name__)
 CORS(app)
 
-# Get absolute path to the data directory
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSV_PATH = os.getenv('CSV_PATH', os.path.join(BASE_DIR, 'data', 'Voter Status File 11-04 1800 CSV.csv'))
+# Data source URLs - in order of preference
+DATA_SOURCES = [
+    {
+        'name': 'NVSOS',
+        'url': 'https://www.nvsos.gov/sos/home/showpublisheddocument/15245/638663411283100000'
+    },
+    {
+        'name': 'GitHub LFS',
+        'url': os.getenv('GITHUB_LFS_URL', '')  # Set this in Render's environment variables
+    },
+    {
+        'name': 'Local File',
+        'path': 'data/voter_status.csv'
+    }
+]
 
-print(f"Attempting to load CSV from: {CSV_PATH}")
+def load_data():
+    """Try multiple data sources to load the CSV"""
+    last_error = None
+    
+    for source in DATA_SOURCES:
+        try:
+            print(f"Attempting to load data from {source['name']}...")
+            
+            if 'url' in source:
+                # Handle remote data sources
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(source['url'], headers=headers, timeout=30)
+                response.raise_for_status()
+                
+                # Try to read the CSV from the response content
+                try:
+                    df = pd.read_csv(
+                        io.StringIO(response.content.decode('latin1')),
+                        encoding='latin1',
+                        low_memory=False,
+                        dtype={
+                            'STATE_VOTERID': str,
+                            'ZIP': str,
+                            'PRECINCT': str
+                        }
+                    )
+                except Exception as e:
+                    print(f"Error parsing CSV from {source['name']}: {str(e)}")
+                    continue
+                
+            else:
+                # Handle local file
+                if not os.path.exists(source['path']):
+                    print(f"Local file not found at {source['path']}")
+                    continue
+                    
+                df = pd.read_csv(
+                    source['path'],
+                    encoding='latin1',
+                    low_memory=False,
+                    dtype={
+                        'STATE_VOTERID': str,
+                        'ZIP': str,
+                        'PRECINCT': str
+                    }
+                )
+            
+            # If we got here, we successfully loaded the data
+            print(f"Successfully loaded {len(df)} records from {source['name']}")
+            
+            # Cache the data if in production
+            if os.getenv('FLASK_ENV') == 'production':
+                try:
+                    df.to_csv('data/cached_voter_data.csv', index=False)
+                    print("Cached data for future use")
+                except Exception as e:
+                    print(f"Warning: Could not cache data: {str(e)}")
+            
+            return df
+            
+        except Exception as e:
+            print(f"Error loading from {source['name']}: {str(e)}")
+            last_error = e
+            continue
+    
+    # If we get here, all sources failed
+    raise Exception(f"Failed to load data from any source. Last error: {str(last_error)}")
 
-# Load CSV with optimizations
-df = pd.read_csv(CSV_PATH, 
-                 encoding='latin1', 
-                 low_memory=False,
-                 dtype={
-                     'STATE_VOTERID': str,
-                     'ZIP': str,
-                     'PRECINCT': str
-                 })
+# Load the data when the app starts
+print("Initializing application...")
+retry_count = 0
+max_retries = 3
+retry_delay = 5  # seconds
+
+while retry_count < max_retries:
+    try:
+        df = load_data()
+        break
+    except Exception as e:
+        retry_count += 1
+        if retry_count == max_retries:
+            print(f"Failed to load data after {max_retries} attempts. Last error: {str(e)}")
+            raise
+        print(f"Attempt {retry_count} failed. Retrying in {retry_delay} seconds...")
+        time.sleep(retry_delay)
 
 def clean_dataframe(df):
     # Replace NaN, NaT, and inf values with None

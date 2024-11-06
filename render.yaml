@@ -4,12 +4,10 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT
-    disk:
-      name: voter-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.9
       - key: PORT
         value: 10000
+      - key: CSV_URL
+        sync: false  # This will be set manually in Render's dashboard
