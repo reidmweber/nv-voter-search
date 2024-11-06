@@ -44,126 +44,131 @@ def init_db():
         else:
             raise FileNotFoundError(f"Could not find CSV file at {CSV_PATH} or {alt_csv}")
     
-    print("Creating database...")
-    conn = sqlite3.connect(DB_PATH)
+    # Use a temporary database file during initialization
+    temp_db = f"{DB_PATH}.temp"
+    if os.path.exists(temp_db):
+        os.remove(temp_db)
     
-    # Create table with only needed columns
-    column_defs = [f'"{col}" TEXT' for col in NEEDED_COLUMNS]
-    column_defs.append('"ELECTION_YEAR" INTEGER')
-    create_table_sql = f'''
-        CREATE TABLE IF NOT EXISTS voters (
-            {', '.join(column_defs)}
-        )
-    '''
-    print("Creating table...")
-    conn.execute(create_table_sql)
+    print("Creating temporary database...")
+    conn = sqlite3.connect(temp_db)
     
-    # Create temporary table for importing
-    print("Creating temporary table...")
-    conn.execute('DROP TABLE IF EXISTS temp_import')
-    conn.execute(f'''
-        CREATE TABLE temp_import (
-            {', '.join(f'"{col}" TEXT' for col in NEEDED_COLUMNS)}
-        )
-    ''')
-    
-    # Import data using SQLite's copy
-    print("Loading data...")
-    with open(CSV_PATH, 'r', encoding='latin1') as f:
-        # Read header
-        header = next(csv.reader([f.readline()]))
-        col_indices = [header.index(col) for col in NEEDED_COLUMNS]
-        
-        # Prepare insert statement
-        insert_sql = f'''
-            INSERT INTO temp_import VALUES ({','.join(['?' for _ in NEEDED_COLUMNS])})
+    try:
+        # Create table with only needed columns
+        column_defs = [f'"{col}" TEXT' for col in NEEDED_COLUMNS]
+        column_defs.append('"ELECTION_YEAR" INTEGER')
+        create_table_sql = f'''
+            CREATE TABLE IF NOT EXISTS voters (
+                {', '.join(column_defs)}
+            )
         '''
+        print("Creating table...")
+        conn.execute(create_table_sql)
         
-        batch = []
-        batch_size = 1000
-        total_records = 0
-        
-        for line in f:
-            row = next(csv.reader([line]))
-            values = [row[i] for i in col_indices]
-            batch.append(values)
+        # Import data directly
+        print("Loading data...")
+        with open(CSV_PATH, 'r', encoding='latin1') as f:
+            # Read header
+            header = next(csv.reader([f.readline()]))
+            col_indices = [header.index(col) for col in NEEDED_COLUMNS]
             
-            if len(batch) >= batch_size:
+            # Prepare insert statement
+            insert_sql = f'''
+                INSERT INTO voters ({', '.join(f'"{col}"' for col in NEEDED_COLUMNS)}, ELECTION_YEAR)
+                VALUES ({','.join(['?' for _ in range(len(NEEDED_COLUMNS) + 1)])})
+            '''
+            
+            batch = []
+            batch_size = 1000
+            total_records = 0
+            
+            for line in f:
+                row = next(csv.reader([line]))
+                values = [row[i] for i in col_indices]
+                values.append(2024)  # Add ELECTION_YEAR
+                batch.append(values)
+                
+                if len(batch) >= batch_size:
+                    conn.executemany(insert_sql, batch)
+                    conn.commit()  # Commit each batch
+                    total_records += len(batch)
+                    print(f"Loaded {total_records} records...")
+                    batch = []
+                    gc.collect()
+            
+            # Insert remaining records
+            if batch:
                 conn.executemany(insert_sql, batch)
+                conn.commit()
                 total_records += len(batch)
                 print(f"Loaded {total_records} records...")
-                batch = []
-                gc.collect()
         
-        # Insert remaining records
-        if batch:
-            conn.executemany(insert_sql, batch)
-            total_records += len(batch)
-            print(f"Loaded {total_records} records...")
-    
-    # Copy to main table with ELECTION_YEAR
-    print("Copying to main table...")
-    conn.execute('''
-        INSERT INTO voters
-        SELECT *, 2024 as ELECTION_YEAR
-        FROM temp_import
-    ''')
-    
-    # Drop temporary table
-    conn.execute('DROP TABLE temp_import')
-    
-    # Create indexes
-    print("Creating indexes...")
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_name ON voters(VOTER_NAME)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_city ON voters(CITY)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_party ON voters(VOTER_REG_PARTY)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_precinct ON voters(PRECINCT)')
-    
-    # Create FTS table
-    print("Creating FTS table...")
-    searchable_columns = [
-        'STATE_VOTERID',
-        'VOTER_NAME',
-        'STREET_NAME',
-        'CITY',
-        'ZIP',
-        'VOTER_REG_PARTY',
-        'PRECINCT',
-        'VOTE_LOCATION'
-    ]
-    fts_create_sql = f'''
-        CREATE VIRTUAL TABLE IF NOT EXISTS voters_fts USING fts5(
-            {', '.join(f'"{col}"' for col in searchable_columns)},
-            content='voters',
-            content_rowid='rowid'
-        )
-    '''
-    conn.execute(fts_create_sql)
-    
-    # Populate FTS table in chunks
-    print("Populating search index...")
-    chunk_size = 1000
-    offset = 0
-    
-    while True:
-        records = conn.execute(f'''
-            SELECT rowid, {', '.join(searchable_columns)}
-            FROM voters
-            LIMIT {chunk_size} OFFSET {offset}
-        ''').fetchall()
+        # Create indexes
+        print("Creating indexes...")
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_name ON voters(VOTER_NAME)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_city ON voters(CITY)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_party ON voters(VOTER_REG_PARTY)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_precinct ON voters(PRECINCT)')
+        conn.commit()
         
-        if not records:
-            break
+        # Create FTS table
+        print("Creating FTS table...")
+        searchable_columns = [
+            'STATE_VOTERID',
+            'VOTER_NAME',
+            'STREET_NAME',
+            'CITY',
+            'ZIP',
+            'VOTER_REG_PARTY',
+            'PRECINCT',
+            'VOTE_LOCATION'
+        ]
+        fts_create_sql = f'''
+            CREATE VIRTUAL TABLE IF NOT EXISTS voters_fts USING fts5(
+                {', '.join(f'"{col}"' for col in searchable_columns)},
+                content='voters',
+                content_rowid='rowid'
+            )
+        '''
+        conn.execute(fts_create_sql)
         
-        conn.executemany(f'''
-            INSERT INTO voters_fts(rowid, {', '.join(searchable_columns)})
-            VALUES ({', '.join(['?' for _ in range(len(searchable_columns) + 1)])})
-        ''', records)
+        # Populate FTS table in chunks
+        print("Populating search index...")
+        chunk_size = 1000
+        offset = 0
         
-        offset += chunk_size
-        print(f"Indexed {offset} records...")
-        gc.collect()
-    
-    conn.commit()
-    conn.close()
-    print("Database initialized successfully")
+        while True:
+            records = conn.execute(f'''
+                SELECT rowid, {', '.join(searchable_columns)}
+                FROM voters
+                LIMIT {chunk_size} OFFSET {offset}
+            ''').fetchall()
+            
+            if not records:
+                break
+            
+            conn.executemany(f'''
+                INSERT INTO voters_fts(rowid, {', '.join(searchable_columns)})
+                VALUES ({', '.join(['?' for _ in range(len(searchable_columns) + 1)])})
+            ''', records)
+            
+            offset += chunk_size
+            print(f"Indexed {offset} records...")
+            conn.commit()  # Commit each batch of FTS records
+            gc.collect()
+        
+        conn.commit()
+        conn.close()
+        
+        # Replace the old database with the new one
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        os.rename(temp_db, DB_PATH)
+        
+        print("Database initialized successfully")
+        
+    except Exception as e:
+        print(f"Error during initialization: {str(e)}")
+        conn.close()
+        if os.path.exists(temp_db):
+            os.remove(temp_db)
+        raise
