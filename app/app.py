@@ -27,83 +27,79 @@ DATA_SOURCES = [
 ]
 
 def load_data():
-    """Try multiple data sources to load the CSV"""
+    """Try multiple data sources to load the CSV with memory optimization"""
     last_error = None
     
     for source in DATA_SOURCES:
         try:
             print(f"Attempting to load data from {source['name']}...")
             
+            # Define dtypes to reduce memory usage
+            dtypes = {
+                'STATE_VOTERID': 'string',
+                'VOTER_NAME': 'string',
+                'STREET_NUMBER': 'string',
+                'STREET_PREDIRECTION': 'string',
+                'STREET_NAME': 'string',
+                'STREET_TYPE': 'string',
+                'UNIT': 'string',
+                'CITY': 'string',
+                'STATE': 'string',
+                'ZIP': 'string',
+                'VOTER_REG_PARTY': 'category',
+                'BALLOT_PARTY': 'category',
+                'ELECTION_CODE': 'category',
+                'PRECINCT': 'string',
+                'BALLOT_TYPE': 'category',
+                'BALLOT_VOTE_METHOD': 'category',
+                'VOTE_LOCATION': 'string',
+                'BALLOT_STATUS': 'category'
+            }
+            
             if 'url' in source:
-                # Handle remote data sources
+                # Skip empty URLs
+                if not source['url']:
+                    continue
+                    
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': 'text/csv,application/octet-stream'
                 }
                 response = requests.get(source['url'], headers=headers, timeout=30)
                 response.raise_for_status()
                 
-                # Debug response
-                print(f"Response content type: {response.headers.get('content-type', 'unknown')}")
-                print(f"Response length: {len(response.content)} bytes")
-                
-                # Check if we got HTML instead of CSV
                 if b'<!DOCTYPE html>' in response.content[:100]:
-                    print(f"Received HTML instead of CSV from {source['name']}")
                     raise ValueError("Received HTML instead of CSV")
                 
-                # Try to read the CSV from the response content
-                try:
-                    content = response.content.decode('latin1')
-                    # Debug first few lines
-                    print(f"First few lines of content:\n{content[:500]}")
-                    
-                    df = pd.read_csv(
-                        io.StringIO(content),
-                        encoding='latin1',
-                        low_memory=False,
-                        dtype={
-                            'STATE_VOTERID': str,
-                            'ZIP': str,
-                            'PRECINCT': str
-                        }
-                    )
-                except Exception as e:
-                    print(f"Error parsing CSV from {source['name']}: {str(e)}")
-                    continue
+                # Read CSV in chunks to reduce memory usage
+                chunks = pd.read_csv(
+                    io.StringIO(response.content.decode('latin1')),
+                    encoding='latin1',
+                    dtype=dtypes,
+                    chunksize=10000,  # Process in chunks of 10,000 rows
+                    usecols=list(dtypes.keys())  # Only load needed columns
+                )
+                df = pd.concat(chunks, ignore_index=True)
                 
             else:
-                # Handle local file
                 if not os.path.exists(source['path']):
-                    print(f"Local file not found at {source['path']}")
                     continue
                     
-                df = pd.read_csv(
+                # Read CSV in chunks to reduce memory usage
+                chunks = pd.read_csv(
                     source['path'],
                     encoding='latin1',
-                    low_memory=False,
-                    dtype={
-                        'STATE_VOTERID': str,
-                        'ZIP': str,
-                        'PRECINCT': str
-                    }
+                    dtype=dtypes,
+                    chunksize=10000,  # Process in chunks of 10,000 rows
+                    usecols=list(dtypes.keys())  # Only load needed columns
                 )
+                df = pd.concat(chunks, ignore_index=True)
             
-            # Verify we got actual data
             if len(df) == 0:
-                print(f"Warning: Got empty dataframe from {source['name']}")
                 continue
                 
-            # If we got here, we successfully loaded the data
             print(f"Successfully loaded {len(df)} records from {source['name']}")
-            
-            # Cache the data if in production
-            if os.getenv('FLASK_ENV') == 'production':
-                try:
-                    df.to_csv('data/cached_voter_data.csv', index=False)
-                    print("Cached data for future use")
-                except Exception as e:
-                    print(f"Warning: Could not cache data: {str(e)}")
+            print(f"Memory usage: {df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
             
             return df
             
@@ -112,7 +108,6 @@ def load_data():
             last_error = e
             continue
     
-    # If we get here, all sources failed
     raise Exception(f"Failed to load data from any source. Last error: {str(last_error)}")
 
 # Load the data when the app starts
