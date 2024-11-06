@@ -4,10 +4,26 @@ services:
     runtime: python
     buildCommand: |
       pip install -r requirements.txt
+      echo "Creating data directory..."
       mkdir -p data
+      echo "Copying CSV file..."
       cp "Voter Status File 11-04 1800 CSV.csv" data/voter_status.csv
-      python -c "from app.db import init_db; init_db()"
-    startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class sync --max-requests 1000
+      echo "Listing files in data directory..."
+      ls -la data/
+      echo "Initializing database..."
+      PYTHONPATH=/opt/render/project/src python -c "
+      from app.db import init_db
+      print('Starting database initialization...')
+      init_db()
+      print('Database initialization complete')
+      "
+      echo "Build command complete"
+    startCommand: |
+      echo "Starting application..."
+      echo "Checking data directory..."
+      ls -la data/
+      echo "Starting gunicorn..."
+      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class sync --max-requests 1000
     envVars:
       - key: PYTHON_VERSION
         value: 3.9

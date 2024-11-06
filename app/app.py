@@ -10,13 +10,37 @@ def create_app():
     CORS(app)
     
     # Database setup
-    DB_PATH = 'data/voters.db'
-    os.makedirs('data', exist_ok=True)
-
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'voters.db')
+    
+    print(f"Using database at: {DB_PATH}")
+    
     def get_db():
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            if not os.path.exists(DB_PATH):
+                print(f"Database not found at {DB_PATH}, initializing...")
+                from .db import init_db
+                init_db()
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception as e:
+            print(f"Error connecting to database: {str(e)}")
+            raise
+
+    @app.before_first_request
+    def init_database():
+        try:
+            print("Checking database before first request...")
+            conn = get_db()
+            cursor = conn.cursor()
+            count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
+            print(f"Database contains {count} records")
+            conn.close()
+        except Exception as e:
+            print(f"Error checking database: {str(e)}")
+            print("Attempting to initialize database...")
+            from .db import init_db
+            init_db()
 
     @app.route('/')
     def index():
