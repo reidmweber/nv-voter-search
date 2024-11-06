@@ -6,43 +6,14 @@ services:
       pip install -r requirements.txt
       echo "Creating data directory..."
       mkdir -p data
-      echo "Copying CSV file..."
-      cp "Voter Status File 11-04 1800 CSV.csv" data/voter_status.csv
-      echo "Listing files in data directory..."
-      ls -la data/
-      echo "Initializing database..."
-      PYTHONPATH=/opt/render/project/src timeout 600 python app/init_db.py || exit 1
-      echo "Verifying database..."
-      PYTHONPATH=/opt/render/project/src python -c "
-      import sqlite3
-      conn = sqlite3.connect('data/voters.db')
-      cursor = conn.cursor()
-      count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
-      print(f'Database contains {count} records')
-      conn.close()
-      if count < 500000:
-          print('Database initialization incomplete')
-          exit(1)
-      "
-      echo "Build command complete"
-    startCommand: |
-      echo "Starting application..."
-      echo "Checking data directory..."
-      ls -la data/
+      echo "Downloading database from Google Drive..."
+      curl -L "https://drive.google.com/uc?export=download&id=1rcVvO7surN5PdIRAqNTPIkg7SRfr6_8x" -o data/voters.db
       echo "Database size:"
       ls -lh data/voters.db
-      echo "Verifying database..."
-      PYTHONPATH=/opt/render/project/src python -c "
-      import sqlite3
-      conn = sqlite3.connect('data/voters.db')
-      cursor = conn.cursor()
-      count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
-      print(f'Database contains {count} records')
-      conn.close()
-      if count < 500000:
-          print('Database not ready')
-          exit(1)
-      "
+    startCommand: |
+      echo "Starting application..."
+      echo "Using database at:"
+      ls -lh data/voters.db
       echo "Starting gunicorn..."
       gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 300 --keep-alive 5 --max-requests 1000 --max-requests-jitter 50 --preload
     envVars:
@@ -54,7 +25,7 @@ services:
         value: "1"
       - key: PYTHONPATH
         value: /opt/render/project/src
-    plan: standard
+    plan: starter
     disk:
       name: sqlite-data
       mountPath: /opt/render/project/src/data
