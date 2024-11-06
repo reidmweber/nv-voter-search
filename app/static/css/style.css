@@ -1,0 +1,11 @@
+.container-fluid {
+    padding: 20px;
+}
+
+.card {
+    margin-bottom: 20px;
+}
+
+#voterTable {
+    width: 100%;
+} 

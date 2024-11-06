@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mt-4 mb-4">Voter Status Search</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Party Distribution</h5>
+                    <canvas id="partyChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Top 10 Cities</h5>
+                    <canvas id="cityChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Top 10 Precincts</h5>
+                    <canvas id="precinctChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Ballot Status</h5>
+                    <canvas id="ballotStatusChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Vote Method</h5>
+                    <canvas id="voteMethodChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Ballot Type</h5>
+                    <canvas id="ballotTypeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table id="voterTable" class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Voter ID</th>
+                    <th>Name</th>
+                    <th>Address</th>
+                    <th>City</th>
+                    <th>State</th>
+                    <th>ZIP</th>
+                    <th>Party</th>
+                    <th>Precinct</th>
+                    <th>Ballot Type</th>
+                    <th>Vote Method</th>
+                    <th>Vote Location</th>
+                    <th>Ballot Status</th>
+                </tr>
+            </thead>
+        </table>
+    </div>
+</div>
+{% endblock %} 
