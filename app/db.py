@@ -2,6 +2,7 @@ import sqlite3
 import pandas as pd
 import os
 import gc
+import csv
 
 # Database setup - use absolute paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,6 +58,60 @@ def init_db():
     print("Creating table...")
     conn.execute(create_table_sql)
     
+    # Create temporary table for importing
+    print("Creating temporary table...")
+    conn.execute('DROP TABLE IF EXISTS temp_import')
+    conn.execute(f'''
+        CREATE TABLE temp_import (
+            {', '.join(f'"{col}" TEXT' for col in NEEDED_COLUMNS)}
+        )
+    ''')
+    
+    # Import data using SQLite's copy
+    print("Loading data...")
+    with open(CSV_PATH, 'r', encoding='latin1') as f:
+        # Read header
+        header = next(csv.reader([f.readline()]))
+        col_indices = [header.index(col) for col in NEEDED_COLUMNS]
+        
+        # Prepare insert statement
+        insert_sql = f'''
+            INSERT INTO temp_import VALUES ({','.join(['?' for _ in NEEDED_COLUMNS])})
+        '''
+        
+        batch = []
+        batch_size = 1000
+        total_records = 0
+        
+        for line in f:
+            row = next(csv.reader([line]))
+            values = [row[i] for i in col_indices]
+            batch.append(values)
+            
+            if len(batch) >= batch_size:
+                conn.executemany(insert_sql, batch)
+                total_records += len(batch)
+                print(f"Loaded {total_records} records...")
+                batch = []
+                gc.collect()
+        
+        # Insert remaining records
+        if batch:
+            conn.executemany(insert_sql, batch)
+            total_records += len(batch)
+            print(f"Loaded {total_records} records...")
+    
+    # Copy to main table with ELECTION_YEAR
+    print("Copying to main table...")
+    conn.execute('''
+        INSERT INTO voters
+        SELECT *, 2024 as ELECTION_YEAR
+        FROM temp_import
+    ''')
+    
+    # Drop temporary table
+    conn.execute('DROP TABLE temp_import')
+    
     # Create indexes
     print("Creating indexes...")
     conn.execute('CREATE INDEX IF NOT EXISTS idx_name ON voters(VOTER_NAME)')
@@ -85,33 +140,12 @@ def init_db():
     '''
     conn.execute(fts_create_sql)
     
-    # Load data in smaller chunks
-    print("Loading data...")
-    chunk_size = 5000  # Reduced chunk size
-    total_records = 0
-    
-    # Use chunked reading with only needed columns
-    for chunk in pd.read_csv(CSV_PATH, 
-                           encoding='latin1',
-                           usecols=NEEDED_COLUMNS,
-                           chunksize=chunk_size,
-                           dtype=str):  # Use string type for all columns to save memory
-        
-        chunk['ELECTION_YEAR'] = 2024
-        chunk.to_sql('voters', conn, if_exists='append', index=False)
-        total_records += len(chunk)
-        print(f"Loaded {total_records} records...")
-        
-        # Force garbage collection after each chunk
-        gc.collect()
-    
     # Populate FTS table in chunks
     print("Populating search index...")
-    chunk_size = 5000
+    chunk_size = 1000
     offset = 0
     
     while True:
-        # Get a chunk of records
         records = conn.execute(f'''
             SELECT rowid, {', '.join(searchable_columns)}
             FROM voters
@@ -120,8 +154,7 @@ def init_db():
         
         if not records:
             break
-            
-        # Insert into FTS table
+        
         conn.executemany(f'''
             INSERT INTO voters_fts(rowid, {', '.join(searchable_columns)})
             VALUES ({', '.join(['?' for _ in range(len(searchable_columns) + 1)])})
