@@ -3,26 +3,38 @@ import sqlite3
 import pandas as pd
 import os
 from flask_cors import CORS
-from .db import DB_PATH, init_db  # Import DB_PATH and init_db from db.py
+from .db import DB_PATH
+
+def verify_database():
+    """Verify database exists and has data"""
+    if not os.path.exists(DB_PATH):
+        raise RuntimeError(f"Database not found at {DB_PATH}. Please run initialization first.")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
+    conn.close()
+    
+    if count < 500000:
+        raise RuntimeError(f"Database appears incomplete with only {count} records.")
+    
+    return count
 
 def create_app():
+    # Verify database before creating app
+    record_count = verify_database()
+    print(f"Database verified with {record_count} records")
+    
     app = Flask(__name__)
     CORS(app)
     
     print(f"Using database at: {DB_PATH}")
     
     def get_db():
-        try:
-            if not os.path.exists(DB_PATH):
-                raise FileNotFoundError(f"Database not found at {DB_PATH}")
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            return conn
-        except Exception as e:
-            print(f"Error connecting to database: {str(e)}")
-            raise
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-    # Replace before_first_request with simpler check
     @app.before_request
     def check_database():
         if not hasattr(app, '_database_checked'):
@@ -152,7 +164,11 @@ def create_app():
     return app
 
 # Create the application instance
-app = create_app()
+try:
+    app = create_app()
+except Exception as e:
+    print(f"Failed to create application: {str(e)}")
+    raise
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')

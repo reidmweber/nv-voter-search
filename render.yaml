@@ -11,7 +11,7 @@ services:
       echo "Listing files in data directory..."
       ls -la data/
       echo "Initializing database..."
-      PYTHONPATH=/opt/render/project/src python app/init_db.py || exit 1
+      PYTHONPATH=/opt/render/project/src timeout 600 python app/init_db.py || exit 1
       echo "Verifying database..."
       PYTHONPATH=/opt/render/project/src python -c "
       import sqlite3
@@ -31,6 +31,18 @@ services:
       ls -la data/
       echo "Database size:"
       ls -lh data/voters.db
+      echo "Verifying database..."
+      PYTHONPATH=/opt/render/project/src python -c "
+      import sqlite3
+      conn = sqlite3.connect('data/voters.db')
+      cursor = conn.cursor()
+      count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
+      print(f'Database contains {count} records')
+      conn.close()
+      if count < 500000:
+          print('Database not ready')
+          exit(1)
+      "
       echo "Starting gunicorn..."
       gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300 --graceful-timeout 300 --keep-alive 5 --max-requests 1000 --max-requests-jitter 50 --preload
     envVars:
