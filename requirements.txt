@@ -2,5 +2,7 @@ flask
 pandas
 numpy
 flask-cors
-gunicorn 
-requests 
+gunicorn
+requests
+psutil
+click

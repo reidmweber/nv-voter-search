@@ -2,14 +2,15 @@ services:
   - type: web
     name: voter-search
     runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
+    buildCommand: |
+      pip install -r requirements.txt
+      python app/cli.py init
+    startCommand: gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class sync --max-requests 1000
     envVars:
       - key: PYTHON_VERSION
         value: 3.9
       - key: PORT
         value: 10000
+      - key: PYTHONUNBUFFERED
+        value: "1"
     plan: starter
-    autoscaling:
-      min: 1
-      max: 1
