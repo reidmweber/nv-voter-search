@@ -3,14 +3,11 @@ import sqlite3
 import pandas as pd
 import os
 from flask_cors import CORS
-from .db import DB_PATH  # Import DB_PATH from db.py
+from .db import DB_PATH, init_db  # Import DB_PATH and init_db from db.py
 
 def create_app():
     app = Flask(__name__)
     CORS(app)
-    
-    # Database setup
-    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'voters.db')
     
     print(f"Using database at: {DB_PATH}")
     
@@ -18,7 +15,6 @@ def create_app():
         try:
             if not os.path.exists(DB_PATH):
                 print(f"Database not found at {DB_PATH}, initializing...")
-                from .db import init_db
                 init_db()
             conn = sqlite3.connect(DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -27,20 +23,23 @@ def create_app():
             print(f"Error connecting to database: {str(e)}")
             raise
 
-    @app.before_first_request
-    def init_database():
-        try:
-            print("Checking database before first request...")
-            conn = get_db()
-            cursor = conn.cursor()
-            count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
-            print(f"Database contains {count} records")
-            conn.close()
-        except Exception as e:
-            print(f"Error checking database: {str(e)}")
-            print("Attempting to initialize database...")
-            from .db import init_db
-            init_db()
+    # Replace before_first_request with middleware
+    @app.before_request
+    def check_database():
+        if not hasattr(app, '_database_checked'):
+            try:
+                print("Checking database on first request...")
+                conn = get_db()
+                cursor = conn.cursor()
+                count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
+                print(f"Database contains {count} records")
+                conn.close()
+                app._database_checked = True
+            except Exception as e:
+                print(f"Error checking database: {str(e)}")
+                print("Attempting to initialize database...")
+                init_db()
+                app._database_checked = True
 
     @app.route('/')
     def index():
@@ -158,8 +157,5 @@ def create_app():
 # Create the application instance
 app = create_app()
 
-# Initialize database if running directly
 if __name__ == '__main__':
-    from db import init_db
-    init_db()
     app.run(debug=True, host='0.0.0.0')
