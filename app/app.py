@@ -14,8 +14,7 @@ def create_app():
     def get_db():
         try:
             if not os.path.exists(DB_PATH):
-                print(f"Database not found at {DB_PATH}, initializing...")
-                init_db()
+                raise FileNotFoundError(f"Database not found at {DB_PATH}")
             conn = sqlite3.connect(DB_PATH)
             conn.row_factory = sqlite3.Row
             return conn
@@ -23,7 +22,7 @@ def create_app():
             print(f"Error connecting to database: {str(e)}")
             raise
 
-    # Replace before_first_request with middleware
+    # Replace before_first_request with simpler check
     @app.before_request
     def check_database():
         if not hasattr(app, '_database_checked'):
@@ -37,9 +36,7 @@ def create_app():
                 app._database_checked = True
             except Exception as e:
                 print(f"Error checking database: {str(e)}")
-                print("Attempting to initialize database...")
-                init_db()
-                app._database_checked = True
+                raise
 
     @app.route('/')
     def index():
