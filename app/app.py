@@ -13,16 +13,16 @@ CORS(app)
 # Data source URLs - in order of preference
 DATA_SOURCES = [
     {
-        'name': 'NVSOS',
-        'url': 'https://www.nvsos.gov/sos/home/showpublisheddocument/15245/638663411283100000'
+        'name': 'Local File',
+        'path': 'data/voter_status.csv'
     },
     {
         'name': 'GitHub LFS',
-        'url': os.getenv('GITHUB_LFS_URL', '')  # Set this in Render's environment variables
+        'url': os.getenv('GITHUB_LFS_URL', '')
     },
     {
-        'name': 'Local File',
-        'path': 'data/voter_status.csv'
+        'name': 'NVSOS',
+        'url': 'https://www.nvsos.gov/sos/home/showpublisheddocument/15245/638663411283100000'
     }
 ]
 
@@ -37,15 +37,29 @@ def load_data():
             if 'url' in source:
                 # Handle remote data sources
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/csv,application/octet-stream'
                 }
                 response = requests.get(source['url'], headers=headers, timeout=30)
                 response.raise_for_status()
                 
+                # Debug response
+                print(f"Response content type: {response.headers.get('content-type', 'unknown')}")
+                print(f"Response length: {len(response.content)} bytes")
+                
+                # Check if we got HTML instead of CSV
+                if b'<!DOCTYPE html>' in response.content[:100]:
+                    print(f"Received HTML instead of CSV from {source['name']}")
+                    raise ValueError("Received HTML instead of CSV")
+                
                 # Try to read the CSV from the response content
                 try:
+                    content = response.content.decode('latin1')
+                    # Debug first few lines
+                    print(f"First few lines of content:\n{content[:500]}")
+                    
                     df = pd.read_csv(
-                        io.StringIO(response.content.decode('latin1')),
+                        io.StringIO(content),
                         encoding='latin1',
                         low_memory=False,
                         dtype={
@@ -75,6 +89,11 @@ def load_data():
                     }
                 )
             
+            # Verify we got actual data
+            if len(df) == 0:
+                print(f"Warning: Got empty dataframe from {source['name']}")
+                continue
+                
             # If we got here, we successfully loaded the data
             print(f"Successfully loaded {len(df)} records from {source['name']}")
             
