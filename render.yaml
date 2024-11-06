@@ -23,7 +23,7 @@ services:
       echo "Checking data directory..."
       ls -la data/
       echo "Starting gunicorn..."
-      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --worker-class sync --max-requests 1000
+      gunicorn app.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120 --worker-class sync --max-requests 1000 --max-requests-jitter 50
     envVars:
       - key: PYTHON_VERSION
         value: 3.9
@@ -33,7 +33,7 @@ services:
         value: "1"
       - key: PYTHONPATH
         value: /opt/render/project/src
-    plan: starter
+    plan: standard
     disk:
       name: sqlite-data
       mountPath: /opt/render/project/src/data
