@@ -10,18 +10,24 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 def verify_database():
     """Verify database exists and has data"""
-    if not os.path.exists(DB_PATH):
-        raise RuntimeError(f"Database not found at {DB_PATH}. Please run initialization first.")
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
-    conn.close()
-    
-    if count < 500000:
-        raise RuntimeError(f"Database appears incomplete with only {count} records.")
-    
-    return count
+    try:
+        if not os.path.exists(DB_PATH):
+            print(f"Database not found at {DB_PATH}. Attempting to download...")
+            from app.db_utils import download_from_gdrive
+            download_from_gdrive()
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        count = cursor.execute('SELECT COUNT(*) FROM voters').fetchone()[0]
+        conn.close()
+        
+        if count < 500000:
+            raise RuntimeError(f"Database appears incomplete with only {count} records.")
+        
+        return count
+    except Exception as e:
+        print(f"Database verification failed: {str(e)}")
+        raise
 
 def create_app():
     # Verify database before creating app
