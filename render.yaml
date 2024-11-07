@@ -1,11 +1,18 @@
 services:
   - type: web
     name: voter-search
-    env: python
+    runtime: python
     buildCommand: |
       pip install -r requirements.txt
+      pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client requests
       python init_db.py
     startCommand: gunicorn app.app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
+      - key: GDRIVE_API_KEY
+        sync: false  # Marks this as a secret
+      - key: GDRIVE_FILE_ID
+        sync: false  # Marks this as a secret
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false  # Add this in Render dashboard

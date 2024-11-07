@@ -5,3 +5,4 @@ __pycache__/
 # Ignore large data files
 *.csv
 *.db
+keys/*
