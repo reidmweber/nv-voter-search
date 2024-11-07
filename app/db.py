@@ -29,8 +29,13 @@ NEEDED_COLUMNS = [
     'BALLOT_STATUS'
 ]
 
-def init_db():
+def init_db(csv_path=None):
     """Initialize database and load data"""
+    global CSV_PATH
+    
+    if csv_path:
+        CSV_PATH = csv_path
+    
     print(f"Initializing database at {DB_PATH}")
     print(f"Looking for CSV at {CSV_PATH}")
     
