@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.env.dev
 .DS_Store
 # Ignore large data files
 *.csv

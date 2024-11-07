@@ -5,16 +5,23 @@ services:
       - "5000:5000"
     volumes:
       - .:/app
+      - ./data:/app/data
     working_dir: /app
     environment:
       - FLASK_ENV=development
       - FLASK_APP=app.app:app
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
-    command: ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "--worker-class", "sync", "--max-requests", "1000", "app.app:app"]
+    command: >
+      bash -c "
+        python -m app.cli download || python -m app.cli init --csv /app/data/voter_status.csv;
+        gunicorn --bind 0.0.0.0:5000 --workers 1 --timeout 120 --worker-class sync --max-requests 1000 app.app:app
+      "
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 256M
+    env_file:
+      - .env.dev
