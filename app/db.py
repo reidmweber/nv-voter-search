@@ -29,33 +29,18 @@ NEEDED_COLUMNS = [
     'BALLOT_STATUS'
 ]
 
-def init_db(csv_path=None):
-    """Initialize database and load data"""
+def init_db(csv_path=None, format_type='standard'):
+    """Initialize database and create tables"""
     global CSV_PATH
     
     if csv_path:
         CSV_PATH = csv_path
     
     print(f"Initializing database at {DB_PATH}")
-    print(f"Looking for CSV at {CSV_PATH}")
     
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     
-    if not os.path.exists(CSV_PATH):
-        alt_csv = os.path.join(BASE_DIR, 'Voter Status File 11-04 1800 CSV.csv')
-        if os.path.exists(alt_csv):
-            print(f"Copying {alt_csv} to {CSV_PATH}")
-            os.system(f'cp "{alt_csv}" "{CSV_PATH}"')
-        else:
-            raise FileNotFoundError(f"Could not find CSV file at {CSV_PATH} or {alt_csv}")
-    
-    # Use a temporary database file during initialization
-    temp_db = f"{DB_PATH}.temp"
-    if os.path.exists(temp_db):
-        os.remove(temp_db)
-    
-    print("Creating temporary database...")
-    conn = sqlite3.connect(temp_db)
+    conn = sqlite3.connect(DB_PATH)
     
     try:
         # Create table with only needed columns
@@ -69,12 +54,107 @@ def init_db(csv_path=None):
         print("Creating table...")
         conn.execute(create_table_sql)
         
-        # Import data directly
-        print("Loading data...")
-        with open(CSV_PATH, 'r', encoding='latin1') as f:
+        # Create FTS table
+        print("Creating FTS table...")
+        conn.execute('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS voters_fts USING fts5(
+                STATE_VOTERID,
+                VOTER_NAME,
+                STREET_NUMBER,
+                STREET_NAME,
+                CITY,
+                ZIP,
+                VOTER_REG_PARTY,
+                PRECINCT,
+                content='voters',
+                content_rowid='rowid'
+            )
+        ''')
+        
+        # Create triggers to keep FTS table in sync
+        print("Creating FTS triggers...")
+        conn.executescript('''
+            CREATE TRIGGER IF NOT EXISTS voters_ai AFTER INSERT ON voters BEGIN
+                INSERT INTO voters_fts(
+                    rowid,
+                    STATE_VOTERID,
+                    VOTER_NAME,
+                    STREET_NUMBER,
+                    STREET_NAME,
+                    CITY,
+                    ZIP,
+                    VOTER_REG_PARTY,
+                    PRECINCT
+                ) VALUES (
+                    new.rowid,
+                    new.STATE_VOTERID,
+                    new.VOTER_NAME,
+                    new.STREET_NUMBER,
+                    new.STREET_NAME,
+                    new.CITY,
+                    new.ZIP,
+                    new.VOTER_REG_PARTY,
+                    new.PRECINCT
+                );
+            END;
+            
+            CREATE TRIGGER IF NOT EXISTS voters_ad AFTER DELETE ON voters BEGIN
+                INSERT INTO voters_fts(voters_fts, rowid, STATE_VOTERID, VOTER_NAME, STREET_NUMBER, STREET_NAME, CITY, ZIP, VOTER_REG_PARTY, PRECINCT)
+                VALUES('delete', old.rowid, old.STATE_VOTERID, old.VOTER_NAME, old.STREET_NUMBER, old.STREET_NAME, old.CITY, old.ZIP, old.VOTER_REG_PARTY, old.PRECINCT);
+            END;
+            
+            CREATE TRIGGER IF NOT EXISTS voters_au AFTER UPDATE ON voters BEGIN
+                INSERT INTO voters_fts(voters_fts, rowid, STATE_VOTERID, VOTER_NAME, STREET_NUMBER, STREET_NAME, CITY, ZIP, VOTER_REG_PARTY, PRECINCT)
+                VALUES('delete', old.rowid, old.STATE_VOTERID, old.VOTER_NAME, old.STREET_NUMBER, old.STREET_NAME, old.CITY, old.ZIP, old.VOTER_REG_PARTY, old.PRECINCT);
+                INSERT INTO voters_fts(rowid, STATE_VOTERID, VOTER_NAME, STREET_NUMBER, STREET_NAME, CITY, ZIP, VOTER_REG_PARTY, PRECINCT)
+                VALUES (new.rowid, new.STATE_VOTERID, new.VOTER_NAME, new.STREET_NUMBER, new.STREET_NAME, new.CITY, new.ZIP, new.VOTER_REG_PARTY, new.PRECINCT);
+            END;
+        ''')
+        
+        if csv_path:
+            import_data(csv_path, format_type)
+            
+    finally:
+        conn.close()
+
+def import_data(csv_path, format_type='standard'):
+    """Import data from CSV file into existing database"""
+    print(f"Importing data from {csv_path}")
+    
+    conn = sqlite3.connect(DB_PATH)
+    
+    try:
+        with open(csv_path, 'r', encoding='latin1') as f:
             # Read header
             header = next(csv.reader([f.readline()]))
-            col_indices = [header.index(col) for col in NEEDED_COLUMNS]
+            
+            # Define column mappings based on format
+            if format_type == 'ev':
+                column_mapping = {
+                    'STATE_VOTERID': header.index('IDNUMBER'),
+                    'VOTER_NAME': header.index('NAME'),
+                    'PRECINCT': header.index('PRECINCT'),
+                    'VOTER_REG_PARTY': header.index('PARTY'),
+                    'CITY': header.index('CITY'),
+                    'VOTE_LOCATION': header.index('EV SITE'),
+                    'BALLOT_STATUS': header.index('STATUS')
+                }
+                # Set default values for unmapped columns
+                default_values = {
+                    'STREET_NUMBER': '',
+                    'STREET_PREDIRECTION': '',
+                    'STREET_NAME': '',
+                    'STREET_TYPE': '',
+                    'UNIT': '',
+                    'STATE': 'NV',
+                    'ZIP': '',
+                    'BALLOT_TYPE': 'EV',
+                    'BALLOT_VOTE_METHOD': 'Early Voting'
+                }
+            else:
+                # Original format mapping
+                column_mapping = {col: header.index(col) for col in NEEDED_COLUMNS if col in header}
+                default_values = {}
             
             # Prepare insert statement
             insert_sql = f'''
@@ -88,13 +168,21 @@ def init_db(csv_path=None):
             
             for line in f:
                 row = next(csv.reader([line]))
-                values = [row[i] for i in col_indices]
+                values = []
+                
+                # Build values list using mapping and defaults
+                for col in NEEDED_COLUMNS:
+                    if col in column_mapping:
+                        values.append(row[column_mapping[col]])
+                    else:
+                        values.append(default_values.get(col, ''))
+                
                 values.append(2024)  # Add ELECTION_YEAR
                 batch.append(values)
                 
                 if len(batch) >= batch_size:
                     conn.executemany(insert_sql, batch)
-                    conn.commit()  # Commit each batch
+                    conn.commit()
                     total_records += len(batch)
                     print(f"Loaded {total_records} records...")
                     batch = []
@@ -106,74 +194,18 @@ def init_db(csv_path=None):
                 conn.commit()
                 total_records += len(batch)
                 print(f"Loaded {total_records} records...")
-        
-        # Create indexes
-        print("Creating indexes...")
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_name ON voters(VOTER_NAME)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_city ON voters(CITY)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_party ON voters(VOTER_REG_PARTY)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_precinct ON voters(PRECINCT)')
-        conn.commit()
-        
-        # Create FTS table
-        print("Creating FTS table...")
-        searchable_columns = [
-            'STATE_VOTERID',
-            'VOTER_NAME',
-            'STREET_NAME',
-            'CITY',
-            'ZIP',
-            'VOTER_REG_PARTY',
-            'PRECINCT',
-            'VOTE_LOCATION'
-        ]
-        fts_create_sql = f'''
-            CREATE VIRTUAL TABLE IF NOT EXISTS voters_fts USING fts5(
-                {', '.join(f'"{col}"' for col in searchable_columns)},
-                content='voters',
-                content_rowid='rowid'
-            )
-        '''
-        conn.execute(fts_create_sql)
-        
-        # Populate FTS table in chunks
-        print("Populating search index...")
-        chunk_size = 1000
-        offset = 0
-        
-        while True:
-            records = conn.execute(f'''
-                SELECT rowid, {', '.join(searchable_columns)}
-                FROM voters
-                LIMIT {chunk_size} OFFSET {offset}
-            ''').fetchall()
             
-            if not records:
-                break
+            print("Creating indexes...")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_name ON voters(VOTER_NAME)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_city ON voters(CITY)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_party ON voters(VOTER_REG_PARTY)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_precinct ON voters(PRECINCT)')
+            conn.commit()
             
-            conn.executemany(f'''
-                INSERT INTO voters_fts(rowid, {', '.join(searchable_columns)})
-                VALUES ({', '.join(['?' for _ in range(len(searchable_columns) + 1)])})
-            ''', records)
+            print("Database updated successfully")
             
-            offset += chunk_size
-            print(f"Indexed {offset} records...")
-            conn.commit()  # Commit each batch of FTS records
-            gc.collect()
-        
-        conn.commit()
-        conn.close()
-        
-        # Replace the old database with the new one
-        if os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-        os.rename(temp_db, DB_PATH)
-        
-        print("Database initialized successfully")
-        
     except Exception as e:
-        print(f"Error during initialization: {str(e)}")
-        conn.close()
-        if os.path.exists(temp_db):
-            os.remove(temp_db)
+        print(f"Error during import: {str(e)}")
         raise
+    finally:
+        conn.close()
